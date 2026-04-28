@@ -4,13 +4,17 @@ pipeline {
     stages {
         stage('Install') {
             steps {
-                sh 'npm install'
+                dir('react-app') {
+                    sh 'npm install'
+                }
             }
         }
 
         stage('Test') {
             steps {
-                sh 'npm test'
+                dir('react-app') {
+                    sh 'npm test'
+                }
             }
         }
     }
