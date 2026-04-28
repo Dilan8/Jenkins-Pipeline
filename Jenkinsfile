@@ -9,12 +9,9 @@ pipeline {
                 }
             }
         }
-
-        stage('Build') {
+        stage('Build Docker Image') {
             steps {
-                dir('react-app') {
-                    sh 'npm run build'
-                }
+                sh 'docker build -t react-app:latest .'
             }
         }
     }
