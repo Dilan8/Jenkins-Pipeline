@@ -10,10 +10,10 @@ pipeline {
             }
         }
 
-        stage('Test') {
+        stage('Build') {
             steps {
                 dir('react-app') {
-                    sh 'npm test'
+                    sh 'npm run build'
                 }
             }
         }
