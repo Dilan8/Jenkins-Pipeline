@@ -27,7 +27,7 @@ resource "aws_security_group_rule" "jenkins_ui" {
   from_port         = 8080
   to_port           = 8080
   protocol          = "tcp"
-  cidr_blocks       = [var.your_ip] # replace with your IP
+  cidr_blocks       = ["0.0.0.0/0"] # replace with your IP
   security_group_id = aws_security_group.jenkins.id
 }
 
