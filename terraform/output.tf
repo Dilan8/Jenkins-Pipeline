@@ -1,6 +1,6 @@
 output "jenkins_public_ip" {
-  description = "Open Jenkins at this IP on port 8080"
-  value       = aws_instance.jenkins.public_ip
+  description = "Jenkins permanent IP — never changes"
+  value       = aws_eip.jenkins.public_ip
 }
 
 output "ecr_repository_url" {
@@ -16,4 +16,9 @@ output "ecs_cluster_name" {
 output "ecs_service_name" {
   description = "Use this in Jenkins for aws ecs update-service"
   value       = aws_ecs_service.app.name
+}
+
+output "alb_dns_name" {
+  description = "Open your React app at this URL"
+  value       = "http://${aws_lb.main.dns_name}"
 }

@@ -85,9 +85,13 @@ resource "aws_ecs_service" "app" {
     assign_public_ip = true
   }
 
-  # IMPORTANT — stops Terraform fighting with Jenkins deployments
-  # Jenkins updates task_definition on every deploy
-  # Without this line, terraform apply would undo Jenkins's work
+  # Connect ECS service to ALB target group
+  load_balancer {
+    target_group_arn = aws_lb_target_group.app.arn
+    container_name   = "react-app"
+    container_port   = 5173
+  }
+
   lifecycle {
     ignore_changes = [task_definition]
   }

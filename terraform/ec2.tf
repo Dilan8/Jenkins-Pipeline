@@ -57,3 +57,24 @@ resource "aws_iam_role_policy_attachment" "ssm_access" {
   role       = aws_iam_role.jenkins_ec2_role.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
+
+# Elastic IP — permanent public IP for Jenkins
+# Free when attached to running EC2
+# Jenkins URL never changes again
+resource "aws_eip" "jenkins" {
+  domain = "vpc"
+   # Protect this from accidental destroy
+  lifecycle {
+    prevent_destroy = true
+  }
+
+  tags = {
+    Name = "jenkins-eip"
+  }
+}
+
+# Attach the Elastic IP to Jenkins EC2
+resource "aws_eip_association" "jenkins" {
+  instance_id   = aws_instance.jenkins.id
+  allocation_id = aws_eip.jenkins.id
+}
