@@ -27,7 +27,7 @@ resource "aws_security_group_rule" "jenkins_ui" {
   from_port         = 8080
   to_port           = 8080
   protocol          = "tcp"
-  cidr_blocks       = [var.your_ip] # replace with your IP
+  cidr_blocks       = ["0.0.0.0/0"] # replace with your IP
   security_group_id = aws_security_group.jenkins.id
 }
 
@@ -54,15 +54,6 @@ resource "aws_security_group" "ecs_tasks" {
   }
 }
 
-# Allow public access to app (port 5173)
-resource "aws_security_group_rule" "ecs_app_inbound" {
-  type              = "ingress"
-  from_port         = 5173
-  to_port           = 5173
-  protocol          = "tcp"
-  cidr_blocks       = ["0.0.0.0/0"] # public access
-  security_group_id = aws_security_group.ecs_tasks.id
-}
 
 # Allow all outbound traffic from ECS
 resource "aws_security_group_rule" "ecs_egress" {
@@ -72,4 +63,14 @@ resource "aws_security_group_rule" "ecs_egress" {
   protocol          = "-1"
   cidr_blocks       = ["0.0.0.0/0"]
   security_group_id = aws_security_group.ecs_tasks.id
+}
+
+# AFTER — only ALB can hit ECS
+resource "aws_security_group_rule" "ecs_app_inbound" {
+  type                     = "ingress"
+  from_port                = 5173
+  to_port                  = 5173
+  protocol                 = "tcp"
+  source_security_group_id = aws_security_group.alb.id
+  security_group_id        = aws_security_group.ecs_tasks.id
 }
