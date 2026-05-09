@@ -12,8 +12,8 @@ A fully automated, production-grade CI/CD pipeline built from scratch on AWS. A 
 - [Architecture](#architecture)
 - [Pipeline Flow](#pipeline-flow)
 - [Infrastructure](#infrastructure)
-- [Monitoring](#monitoring)
 - [Technologies](#technologies)
+- [Project Structure](#project-structure)
 - [How to Deploy](#how-to-deploy)
 - [Security](#security)
 - [Author](#author)
@@ -24,6 +24,8 @@ A fully automated, production-grade CI/CD pipeline built from scratch on AWS. A 
 
 This project demonstrates a production-equivalent CI/CD pipeline using AWS native services and infrastructure as code. The entire AWS infrastructure is defined in Terraform and can be destroyed and recreated with two commands.
 
+**What problem does this solve?**
+
 | Before | After |
 |--------|-------|
 | Manual SSH into server | Fully automated |
@@ -32,7 +34,6 @@ This project demonstrates a production-equivalent CI/CD pipeline using AWS nativ
 | Manual container restart | ECS deploys automatically |
 | IP changes on every restart | Stable ALB DNS name |
 | No scaling | Auto scales up to 5 tasks |
-| No visibility | Live Grafana dashboard |
 
 ---
 
@@ -64,12 +65,12 @@ Developer Laptop
 └─────────────────────────────────────┘
       │
       ▼
-   Amazon ECR          Amazon CloudWatch
-   (Docker images)     (Metrics + Logs)
-      │                      │
-      ▼                      ▼
-   Amazon S3           Grafana Cloud
-   (Terraform state)   (Live Dashboard)
+   Amazon ECR
+   (Docker images)
+      │
+      ▼
+   Amazon S3
+   (Terraform state)
 ```
 
 ---
@@ -83,17 +84,29 @@ git push
 GitHub webhook fires → Jenkins EC2
     │
     ├── Stage 1: npm install
+    │           installs React dependencies
     │
-    ├── Stage 2: docker build (multi-stage Dockerfile)
+    ├── Stage 2: docker build
+    │           multi-stage Dockerfile
+    │           Stage 1: build React app (Vite)
+    │           Stage 2: serve with lightweight server
     │
-    ├── Stage 3: docker push → ECR (via IAM role, no credentials stored)
+    ├── Stage 3: docker push → ECR
+    │           authenticated via IAM role
+    │           no credentials stored anywhere
     │
-    └── Stage 4: aws ecs update-service → app is live ✅
+    └── Stage 4: aws ecs update-service
+                ECS pulls new image from ECR
+                starts new task
+                old task stopped
+                app is live ✅
 ```
 
 ---
 
 ## Infrastructure
+
+All infrastructure is defined as code in Terraform:
 
 | File | What it creates |
 |------|----------------|
@@ -108,77 +121,96 @@ GitHub webhook fires → Jenkins EC2
 | `outputs.tf` | Jenkins IP, ECR URL, ALB DNS name |
 | `backend.tf` | S3 remote state with encryption |
 
----
-
-## Monitoring
-
-### Grafana Dashboard — CI/CD Project Overview
-
-Live monitoring dashboard connected to AWS CloudWatch showing real-time metrics.
-
-| Panel | Metric | What it shows |
-|-------|--------|---------------|
-| ECS CPU Utilization % | `AWS/ECS CPUUtilization` | Container CPU — spike visible on every deployment |
-| ECS Memory Usage % | `AWS/ECS MemoryUtilization` | Container memory consumption over time |
-| ALB Request Count | `AWS/ApplicationELB RequestCount` | Requests hitting the load balancer per minute |
-| ALB Response Time | `AWS/ApplicationELB TargetResponseTime` | App response speed in seconds (0.002-0.004s) |
-
-### How metrics flow
+### Networking Design
 
 ```
-ECS Fargate container
-  using CPU and Memory
-        │
-        │ automatically every 1 minute
-        │ no agent or config needed
-        ▼
-AWS CloudWatch
-  stores metrics
-  retains data 15 months
-        │
-        │ Grafana reads via IAM user
-        │ CloudWatchReadOnlyAccess
-        │ CloudWatchLogsReadOnlyAccess
-        ▼
-Grafana Cloud Dashboard
-  displays as live charts
+Internet → Internet Gateway → ALB (port 80)
+                           → ALB → ECS task (port 5173)
+                           
+Jenkins EC2:
+  Inbound:  port 22 (SSH, your IP only)
+            port 8080 (Jenkins UI + webhooks)
+  Outbound: all (ECR push, npm install, git pull)
+
+ECS task:
+  Inbound:  port 5173 from ALB SG only
+            (cannot be reached directly from internet)
+  Outbound: all (ECR image pull, CloudWatch logs)
 ```
 
-### Grafana setup
+### IAM Roles — No Credentials Stored Anywhere
 
-```
-1. Created Grafana Cloud account (free tier)
-2. Created IAM user: grafana-cloudwatch-reader
-   Policies: CloudWatchReadOnlyAccess + CloudWatchLogsReadOnlyAccess
-3. Added CloudWatch as data source (region: ap-southeast-2)
-4. Built dashboard with 4 panels querying CloudWatch metrics
-```
-
-### What the metrics tell you
-
-```
-ECS CPU spike     → deployment happened (Jenkins pushed new image)
-ECS Memory steady → app is healthy, no memory leak
-ALB Request Count → real user traffic hitting the app
-ALB Response Time → app responding in under 5ms
-```
+| Role | Used By | Permissions |
+|------|---------|-------------|
+| `jenkins-ec2-role` | Jenkins EC2 | ECR push, ECS deploy, SSM |
+| `ecs-task-execution-role` | ECS Fargate | ECR pull, CloudWatch write |
 
 ---
 
 ## Technologies
 
-| Category | Tools |
-|----------|-------|
-| CI/CD | Jenkins, GitHub webhooks, GitHub Actions |
-| Containers | Docker (multi-stage), Amazon ECR |
-| Runtime | AWS ECS Fargate, ALB, Auto Scaling |
-| Infrastructure | Terraform, AWS VPC, EC2, IAM, S3, Elastic IP |
-| Monitoring | Grafana Cloud, AWS CloudWatch metrics and logs |
-| Application | React, Vite, Node.js |
+### CI/CD & Containerisation
+- **Jenkins** — CI/CD engine, runs on EC2, triggered by GitHub webhook
+- **Docker** — multi-stage builds, final image contains only production files
+- **Amazon ECR** — private Docker registry, scan on push enabled
+- **GitHub Actions** — portfolio deployment to GitHub Pages
+
+### AWS Infrastructure
+- **ECS Fargate** — serverless container runtime, no servers to manage
+- **ALB** — Application Load Balancer, stable DNS, health checks, auto failover
+- **EC2** — Jenkins build server (t3.micro, Amazon Linux 2023)
+- **VPC** — custom network, 2 public subnets across 2 Availability Zones
+- **IAM** — instance roles, no access keys stored anywhere
+- **S3** — encrypted remote Terraform state
+- **CloudWatch** — container logs, 7 day retention
+- **Elastic IP** — permanent IP for Jenkins, survives EC2 restarts
+
+### Infrastructure as Code
+- **Terraform** — all AWS resources defined as code
+- **Remote state** — S3 backend with encryption
+- **Auto Scaling** — target tracking on CPU 60%, min 1 max 5 tasks
+
+### Application
+- **React** — frontend application
+- **Vite** — build tool, fast compilation
+- **Node.js / npm** — runtime and package manager
+
+---
+
+## Project Structure
+
+```
+Jenkins-Pipeline/
+├── react-app/              ← React application source
+│   ├── src/
+│   │   └── App.jsx
+│   ├── package.json
+│   └── vite.config.js
+├── terraform/              ← All infrastructure as code
+│   ├── vpc.tf
+│   ├── security.tf
+│   ├── ec2.tf
+│   ├── ecr.tf
+│   ├── ecs.tf
+│   ├── alb.tf
+│   ├── autoscaling.tf
+│   ├── variables.tf
+│   ├── outputs.tf
+│   ├── backend.tf
+│   └── userdata.sh
+├── Dockerfile              ← Multi-stage container build
+├── Jenkinsfile             ← Pipeline definition
+└── README.md
+```
 
 ---
 
 ## How to Deploy
+
+### Prerequisites
+- AWS CLI configured
+- Terraform installed (v1.0+)
+- AWS account with appropriate permissions
 
 ### Step 1 — Create S3 backend bucket
 
@@ -187,6 +219,10 @@ aws s3api create-bucket \
   --bucket terraform-state-cicd-YOUR_ACCOUNT_ID \
   --region ap-southeast-2 \
   --create-bucket-configuration LocationConstraint=ap-southeast-2
+
+aws s3api put-bucket-versioning \
+  --bucket terraform-state-cicd-YOUR_ACCOUNT_ID \
+  --versioning-configuration Status=Enabled
 ```
 
 ### Step 2 — Configure variables
@@ -199,7 +235,7 @@ your_ip       = "YOUR_IP/32"
 key_pair_name = "YOUR_KEY_PAIR"
 ```
 
-### Step 3 — Deploy
+### Step 3 — Deploy infrastructure
 
 ```bash
 cd terraform
@@ -208,15 +244,34 @@ terraform plan
 terraform apply
 ```
 
-### Step 4 — Configure Grafana monitoring
+### Step 4 — Configure Jenkins
+
+```bash
+# Get Jenkins URL from outputs
+terraform output jenkins_public_ip
+
+# Open in browser
+http://JENKINS_IP:8080
+
+# Get initial password
+ssh -i your-key.pem ec2-user@JENKINS_IP
+sudo cat /var/lib/jenkins/secrets/initialAdminPassword
+```
+
+### Step 5 — Add GitHub webhook
 
 ```
-1. Create free account at grafana.com
-2. Create IAM user: grafana-cloudwatch-reader
-   Attach: CloudWatchReadOnlyAccess + CloudWatchLogsReadOnlyAccess
-3. Generate access keys
-4. Add CloudWatch data source in Grafana (region: ap-southeast-2)
-5. Build dashboard panels for ECS and ALB metrics
+GitHub repo → Settings → Webhooks → Add webhook
+Payload URL: http://JENKINS_IP:8080/github-webhook/
+Content type: application/json
+Events: push
+```
+
+### Step 6 — Access the app
+
+```bash
+terraform output alb_dns_name
+# Open the URL in browser
 ```
 
 ### Destroy everything
@@ -231,19 +286,26 @@ terraform destroy
 
 | Layer | Protection |
 |-------|-----------|
-| Network | VPC isolation, ECS not exposed to internet directly |
-| Identity | IAM roles with least privilege, no access keys in code |
+| Network | VPC isolation, security groups, ECS not exposed to internet |
+| Identity | IAM roles with least privilege, no access keys stored |
 | Container | ECR private registry, vulnerability scanning on push |
 | Application | ECS only reachable through ALB |
 | State | Terraform state encrypted in S3 |
 | DDoS | AWS Shield Standard (free, automatic on ALB) |
-| Monitoring | Grafana read-only IAM user, cannot modify AWS resources |
+
+**Planned improvements:**
+- HTTPS with ACM certificate
+- Custom domain via Route 53
+- WAF rules on ALB
+- Private subnets for ECS
+- Secrets Manager for sensitive config
 
 ---
 
 ## Author
 
-**Dilan Vasantharaj** — Site Reliability Engineer | DevOps | AWS
+**Dilan Vasantharaj**
+Site Reliability Engineer | DevOps | AWS
 
 - 📧 vasandarajdilan64@gmail.com
 - 💻 [github.com/Dilan8](https://github.com/Dilan8)
@@ -252,4 +314,7 @@ terraform destroy
 
 ---
 
-*Destroy and recreate everything with two commands: `terraform init && terraform apply`*
+*Infrastructure as Code — destroy and recreate everything with two commands*
+```
+terraform init && terraform apply
+```
